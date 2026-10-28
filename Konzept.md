@@ -19,6 +19,16 @@ Es soll ein intuitives und modernes Design sein, so ähnlich wie mein Linux (Oma
 ## Plattform
 Die Software soll als Web-App im Browser laufen. Projekte werden lokal als Datei exportiert/importiert; ein Server-Backend ist nicht vorgesehen.
 
+## Priorisierung
+
+Die Reiter werden nacheinander umgesetzt, nicht parallel. Reihenfolge (zeitlich gemeint, nicht fachlich wichtiger):
+
+1. Fehlerbaum
+2. Zuverlässigkeitsdiagramm
+3. BDD
+
+Die Implementierung startet mit dem Fehlerbaum. Entsprechend sind die GitHub-Issues/Milestones in Phasen eingeteilt ("Phase 1: Fehlerbaum", "Phase 2: Zuverlässigkeitsdiagramm", "Phase 3: BDD").
+
 ## Berechnungsgrundlagen
 - Komponentenausfälle werden als unabhängig angenommen — das gilt zwischen verschiedenen Komponenten. Taucht dieselbe Komponente mehrfach auf (im selben Diagramm oder über mehrere Reiter hinweg), ist sie dieselbe Variable/Identität, nicht mehrere unabhängige Kopien.
 - Es wird von konstanten Ausfall- und Reparaturraten ausgegangen (Exponentialverteilung).
