@@ -29,12 +29,17 @@ Die Reiter werden nacheinander umgesetzt, nicht parallel. Reihenfolge (zeitlich 
 
 Die Implementierung startet mit dem Fehlerbaum. Entsprechend sind die GitHub-Issues/Milestones in Phasen eingeteilt ("Phase 1: Fehlerbaum", "Phase 2: Zuverlässigkeitsdiagramm", "Phase 3: BDD").
 
+Ausnahme: Die interne BDD-Berechnungslogik (siehe "Systemwahrscheinlichkeiten allgemein") wird bereits in Phase 1 benötigt, da Zuverlässigkeit, Verfügbarkeit und PFDavg des Fehlerbaums über das BDD berechnet werden. Nur der grafische BDD-Reiter (Editor, Drag-and-Drop, Darstellung) kann bis Phase 3 warten.
+
 ## Debugging
 
 Die App soll fortlaufend Logs erzeugen, um Fehler leichter nachvollziehbar zu machen — allerdings auf Domänen-Ebene statt als rohe Input-Events: Geloggt wird z. B., wenn ein Verknüpfungselement verbunden, eine Berechnung ausgelöst oder eine Umwandlung zwischen den Reitern durchgeführt wird — nicht jeder einzelne Mausklick mit Koordinaten oder Tastendruck. Das ist beim Debuggen aussagekräftiger und erzeugt deutlich weniger Datenvolumen.
 
-- Logging läuft über einen umschaltbaren Debug-Modus (an/aus), nicht dauerhaft im normalen Betrieb — sonst wachsen die Logs lokal (ohne Server) unbegrenzt.
-- Die Logs lassen sich exportieren, damit Studenten einen Fehler reproduzierbar mitschicken können (z. B. als Anhang an ein Issue).
+- Logging läuft über einen umschaltbaren Debug-Modus (an/aus).
+- Die Logs liegen in einem Ringpuffer mit fester Obergrenze (z. B. 5 MB); die ältesten Einträge werden überschrieben, damit der Speicher nicht unbegrenzt wächst.
+- Fehler (Exceptions, fehlgeschlagene Berechnungen) werden immer erfasst, auch bei ausgeschaltetem Debug-Modus, im begrenzten Puffer — sonst fehlen gerade bei unerwarteten Fehlern die Informationen.
+- Der Export enthält: App-Version bzw. Commit-ID, Browser-Version, Zeitstempel, Aktion, betroffene Komponenten-IDs, Fehlermeldung mit Stacktrace; optional den zugehörigen Projektstand, da Logs allein keine Reproduzierbarkeit garantieren.
+- Ein automatisches Wiederabspielen aller Aktionen ist fürs Erste nicht vorgesehen.
 
 ## Berechnungsgrundlagen
 - Komponentenausfälle werden als unabhängig angenommen — das gilt zwischen verschiedenen Komponenten. Taucht dieselbe Komponente mehrfach auf (im selben Diagramm oder über mehrere Reiter hinweg), ist sie dieselbe Variable/Identität, nicht mehrere unabhängige Kopien.
