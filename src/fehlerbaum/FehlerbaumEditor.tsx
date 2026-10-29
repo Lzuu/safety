@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './FehlerbaumEditor.css'
 import { ElementGlyph } from './ElementGlyph'
-import { connectionPath, inputAnchor, outputAnchor, sizeOf } from './geometry'
+import {
+  clampPosition,
+  connectionPath,
+  inputAnchor,
+  outputAnchor,
+  sizeOf,
+} from './geometry'
 import type { ConnectError, ElementKind, FaultTree, Point } from './model'
 import { DRAG_MIME, Sidebar } from './Sidebar'
 
@@ -27,17 +33,33 @@ const ERROR_TEXT: Record<ConnectError, string> = {
   cycle: 'Die Verbindung würde einen Zyklus erzeugen.',
 }
 
-/** Verfolgt eine Mausbewegung über das ganze Fenster, bis die Maustaste losgelassen wird. */
-function track(onMove: (event: PointerEvent) => void, onEnd: (event: PointerEvent) => void) {
-  function handleEnd(event: PointerEvent) {
+/**
+ * Verfolgt eine Mausbewegung über das ganze Fenster. `onEnd` läuft beim
+ * Loslassen, `onCancel` bei pointercancel. Die zurückgegebene Funktion beendet
+ * das Verfolgen, ohne einen der beiden Callbacks aufzurufen.
+ */
+function track(
+  onMove: (event: PointerEvent) => void,
+  onEnd: (event: PointerEvent) => void,
+  onCancel: () => void,
+): () => void {
+  function stop() {
     window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerup', handleEnd)
-    window.removeEventListener('pointercancel', handleEnd)
+    window.removeEventListener('pointerup', handleUp)
+    window.removeEventListener('pointercancel', handleCancel)
+  }
+  function handleUp(event: PointerEvent) {
+    stop()
     onEnd(event)
   }
+  function handleCancel() {
+    stop()
+    onCancel()
+  }
   window.addEventListener('pointermove', onMove)
-  window.addEventListener('pointerup', handleEnd)
-  window.addEventListener('pointercancel', handleEnd)
+  window.addEventListener('pointerup', handleUp)
+  window.addEventListener('pointercancel', handleCancel)
+  return stop
 }
 
 export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
@@ -50,6 +72,56 @@ export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
   const [notice, setNotice] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const addCount = useRef(0)
+  const cancelTracking = useRef<(() => void) | null>(null)
+
+  /** Beendet ein laufendes Ziehen (Verschieben oder Verbinden), ohne es abzuschließen. */
+  const abortTracking = useCallback(() => {
+    cancelTracking.current?.()
+    cancelTracking.current = null
+    setPending(null)
+  }, [])
+
+  function startTracking(
+    onMove: (event: PointerEvent) => void,
+    onEnd: (event: PointerEvent) => void,
+    onCancel: () => void = () => {},
+  ) {
+    cancelTracking.current?.()
+    cancelTracking.current = track(
+      onMove,
+      (event) => {
+        cancelTracking.current = null
+        onEnd(event)
+      },
+      () => {
+        cancelTracking.current = null
+        onCancel()
+      },
+    )
+  }
+
+  useEffect(() => abortTracking, [abortTracking])
+
+  function canvasBounds() {
+    const canvas = canvasRef.current
+    return { w: canvas?.clientWidth ?? 0, h: canvas?.clientHeight ?? 0 }
+  }
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === 'undefined') return
+    // Bei kleiner werdender Zeichenfläche Elemente zurückholen, die sonst unerreichbar wären.
+    const observer = new ResizeObserver(() => {
+      const bounds = { w: canvas.clientWidth, h: canvas.clientHeight }
+      for (const element of tree.all()) {
+        const position = tree.layout.get(element.id)!
+        tree.layout.set(element.id, clampPosition(element.kind, position, bounds))
+      }
+      refresh()
+    })
+    observer.observe(canvas)
+    return () => observer.disconnect()
+  }, [tree, refresh])
 
   useEffect(() => {
     if (!notice) return
@@ -71,7 +143,7 @@ export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
       const step = addCount.current++ % 8
       position = { x: 40 + step * 28, y: 40 + step * 28 }
     }
-    const element = tree.create(kind, position)
+    const element = tree.create(kind, clampPosition(kind, position, canvasBounds()))
     setSelection({ type: 'element', id: element.id })
     refresh()
   }
@@ -91,25 +163,30 @@ export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
         deleteSelection()
       } else if (event.key === 'Escape') {
         setSelection(null)
-        setPending(null)
+        abortTracking()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [deleteSelection])
+  }, [deleteSelection, abortTracking])
 
   function startMove(event: React.PointerEvent, id: string) {
     if (event.button !== 0) return
     setSelection({ type: 'element', id })
     const origin = tree.layout.get(id)!
+    const kind = tree.get(id)!.kind
     const startX = event.clientX
     const startY = event.clientY
-    track(
+    startTracking(
       (move) => {
-        tree.layout.set(id, {
-          x: Math.max(0, origin.x + move.clientX - startX),
-          y: Math.max(0, origin.y + move.clientY - startY),
-        })
+        tree.layout.set(
+          id,
+          clampPosition(
+            kind,
+            { x: origin.x + move.clientX - startX, y: origin.y + move.clientY - startY },
+            canvasBounds(),
+          ),
+        )
         refresh()
       },
       () => {},
@@ -121,7 +198,7 @@ export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
     event.stopPropagation()
     setSelection(null)
     setPending({ elementId, stub, pointer: toCanvas(event.clientX, event.clientY) })
-    track(
+    startTracking(
       (move) => {
         setPending({ elementId, stub, pointer: toCanvas(move.clientX, move.clientY) })
       },
@@ -144,6 +221,7 @@ export function FehlerbaumEditor({ tree }: { tree: FaultTree }) {
         if (result.ok) refresh()
         else setNotice(ERROR_TEXT[result.error])
       },
+      () => setPending(null),
     )
   }
 
